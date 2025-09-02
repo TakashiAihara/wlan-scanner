@@ -1,0 +1,4 @@
+pywin32
+pythonping
+iperf3
+configparser
