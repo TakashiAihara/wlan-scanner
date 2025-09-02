@@ -1,0 +1,205 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wlan-scanner"
+dynamic = ["version"]
+description = "Wireless LAN Scanner and Performance Analyzer"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "TakashiAihara", email = "takashi.aihara@example.com"}
+]
+maintainers = [
+    {name = "TakashiAihara", email = "takashi.aihara@example.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Network Administrators", 
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Telecommunications Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux", 
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking :: Monitoring",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities"
+]
+keywords = [
+    "wifi", "wireless", "network", "performance", "monitoring", 
+    "ping", "iperf", "throughput", "latency", "rssi", "scanner"
+]
+requires-python = ">=3.7"
+dependencies = [
+    "pythonping>=1.1.4",
+    "iperf3>=0.1.11",
+    "configparser>=5.0.0;python_version<'3.8'",
+    "pywin32>=227;sys_platform=='win32'"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.10.0",
+    "pytest-mock>=3.3.0", 
+    "black>=21.0.0",
+    "flake8>=3.8.0",
+    "mypy>=0.812",
+    "pre-commit>=2.10.0"
+]
+docs = [
+    "sphinx>=4.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "myst-parser>=0.15.0"
+]
+analysis = [
+    "pandas>=1.3.0",
+    "matplotlib>=3.3.0",
+    "numpy>=1.19.0",
+    "seaborn>=0.11.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/TakashiAihara/wlan-scanner"
+Repository = "https://github.com/TakashiAihara/wlan-scanner.git"
+Documentation = "https://github.com/TakashiAihara/wlan-scanner#readme"
+"Bug Tracker" = "https://github.com/TakashiAihara/wlan-scanner/issues"
+Changelog = "https://github.com/TakashiAihara/wlan-scanner/blob/main/CHANGELOG.md"
+
+[project.scripts]
+wlan-scanner = "main:main"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.setuptools_scm]
+write_to = "src/_version.py"
+
+[tool.setuptools.package-data]
+src = ["py.typed"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config", 
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml"
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "network: marks tests that require network access",
+    "windows: marks tests that require Windows platform",
+    "linux: marks tests that require Linux platform"
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    "*/dist/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:"
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "E501", "W503"]
+exclude = [
+    ".git",
+    "__pycache__", 
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+    ".venv",
+    ".tox"
+]
+
+[tool.mypy]
+python_version = "3.7"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pythonping.*",
+    "iperf3.*",
+    "win32wifi.*",
+    "pywifi.*"
+]
+ignore_missing_imports = true
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+line_length = 88
+src_paths = ["src", "tests"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B601"]

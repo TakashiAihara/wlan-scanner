@@ -1,4 +1,24 @@
-pywin32
-pythonping
-iperf3
-configparser
+# Core dependencies for wireless LAN scanner
+pythonping>=1.1.4        # Cross-platform ping functionality
+iperf3>=0.1.11           # Python iPerf3 integration for throughput testing
+configparser>=5.0.0;python_version<'3.8'  # Configuration file handling (builtin in Python 3.8+)
+
+# Platform-specific dependencies
+pywin32>=227;sys_platform=='win32'  # Windows WiFi API access
+
+# Optional dependencies for enhanced functionality
+# Uncomment these for additional features:
+
+# Data analysis and visualization
+# pandas>=1.3.0           # Data analysis and CSV processing
+# matplotlib>=3.3.0       # Plotting and visualization
+# numpy>=1.19.0          # Numerical computing
+# seaborn>=0.11.0        # Statistical data visualization
+
+# Development and testing
+# pytest>=6.0.0          # Testing framework
+# pytest-cov>=2.10.0     # Coverage reporting
+# pytest-mock>=3.3.0     # Mocking for tests
+# black>=21.0.0          # Code formatting
+# flake8>=3.8.0          # Linting
+# mypy>=0.812            # Type checking
