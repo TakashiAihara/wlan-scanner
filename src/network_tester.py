@@ -266,14 +266,8 @@ class NetworkTester:
             client.duration = duration
             client.num_streams = parallel
             client.reverse = False  # Upload (client -> server)
-            client.protocol = 'tcp'
             
-            # Set timeout if specified
-            if test_timeout:
-                client.timeout = int(test_timeout * 1000)  # Convert to milliseconds
-            
-            # Check server availability first
-            self._check_iperf_server_availability(server_ip, server_port, test_timeout)
+            # Skip server availability check to avoid connection conflicts
             
             # Run the test
             result = client.run()
@@ -338,14 +332,8 @@ class NetworkTester:
             client.duration = duration
             client.num_streams = parallel
             client.reverse = True  # Download (server -> client)
-            client.protocol = 'tcp'
             
-            # Set timeout if specified
-            if test_timeout:
-                client.timeout = int(test_timeout * 1000)  # Convert to milliseconds
-            
-            # Check server availability first
-            self._check_iperf_server_availability(server_ip, server_port, test_timeout)
+            # Skip server availability check to avoid connection conflicts
             
             # Run the test
             result = client.run()
@@ -465,12 +453,7 @@ class NetworkTester:
             client.bandwidth = bandwidth
             client.blksize = packet_len
             
-            # Set timeout if specified
-            if test_timeout:
-                client.timeout = int(test_timeout * 1000)  # Convert to milliseconds
-            
-            # Check server availability first
-            self._check_iperf_server_availability(server_ip, server_port, test_timeout)
+            # Skip server availability check to avoid connection conflicts
             
             # Run the test
             result = client.run()
@@ -533,36 +516,23 @@ class NetworkTester:
             IperfTcpResult with parsed data
         """
         try:
-            # Get sum data from result
-            if hasattr(result, 'sum_sent') and result.sum_sent:
-                bytes_sent = getattr(result.sum_sent, 'bytes', 0)
-                throughput_sent_bps = getattr(result.sum_sent, 'bits_per_second', 0)
-                retransmits_sent = getattr(result.sum_sent, 'retransmits', 0)
-            else:
-                bytes_sent = 0
-                throughput_sent_bps = 0
-                retransmits_sent = 0
+            # Get data directly from result
+            bytes_sent = getattr(result, 'sent_bytes', 0)
+            bytes_received = getattr(result, 'received_bytes', 0)
+            throughput_sent_bps = getattr(result, 'sent_bps', 0)
+            throughput_received_bps = getattr(result, 'received_bps', 0)
+            total_retransmits = getattr(result, 'retransmits', 0)
 
-            if hasattr(result, 'sum_received') and result.sum_received:
-                bytes_received = getattr(result.sum_received, 'bytes', 0)
-                throughput_received_bps = getattr(result.sum_received, 'bits_per_second', 0)
-                retransmits_received = getattr(result.sum_received, 'retransmits', 0)
-            else:
-                bytes_received = 0
-                throughput_received_bps = 0
-                retransmits_received = 0
-
-            # Convert bits per second to Mbps
-            throughput_upload = (throughput_sent_bps / 1_000_000) if direction != 'download' else 0.0
-            throughput_download = (throughput_received_bps / 1_000_000) if direction != 'upload' else 0.0
-            
-            # For reverse mode (download), the roles are switched
-            if direction == 'download':
+            # Convert bits per second to Mbps and set based on direction
+            if direction == 'upload':
+                throughput_upload = throughput_sent_bps / 1_000_000
+                throughput_download = 0.0
+            elif direction == 'download':
                 throughput_upload = 0.0
-                throughput_download = throughput_sent_bps / 1_000_000
-                bytes_sent, bytes_received = bytes_received, bytes_sent
-
-            total_retransmits = retransmits_sent + retransmits_received
+                throughput_download = throughput_sent_bps / 1_000_000  # In reverse mode, sent is actually download
+            else:  # bidirectional
+                throughput_upload = throughput_sent_bps / 1_000_000
+                throughput_download = throughput_received_bps / 1_000_000
 
             logger.info(f"iPerf3 TCP {direction} completed: "
                        f"Upload: {throughput_upload:.2f} Mbps, "
