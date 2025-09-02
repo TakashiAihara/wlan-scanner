@@ -1,15 +1,33 @@
 """Network testing utilities for ping and network diagnostics."""
 
 import statistics
-from typing import List, Optional
+from typing import List, Optional, Union
 from pythonping import ping as pythonping_ping
 from pythonping.executor import Response, ResponseList
 from datetime import datetime
 import logging
+import iperf3
+import socket
+import errno
 
-from .models import PingResult
+from .models import PingResult, IperfTcpResult, IperfUdpResult
 
 logger = logging.getLogger(__name__)
+
+
+class IperfError(Exception):
+    """Base exception for iPerf3 related errors."""
+    pass
+
+
+class IperfServerUnavailableError(IperfError):
+    """Exception raised when iPerf3 server is unavailable."""
+    pass
+
+
+class IperfConnectionError(IperfError):
+    """Exception raised when iPerf3 connection fails."""
+    pass
 
 
 class NetworkTester:
@@ -202,6 +220,458 @@ class NetworkTester:
             return result.packets_received > 0
         except Exception:
             return False
+
+    def iperf_tcp_upload(
+        self,
+        server_ip: str,
+        server_port: int = 5201,
+        duration: int = 10,
+        parallel: int = 1,
+        timeout: Optional[float] = None
+    ) -> IperfTcpResult:
+        """
+        Perform TCP upload throughput test using iPerf3.
+        
+        Args:
+            server_ip: iPerf3 server IP address
+            server_port: iPerf3 server port
+            duration: Test duration in seconds
+            parallel: Number of parallel connections
+            timeout: Connection timeout in seconds
+            
+        Returns:
+            IperfTcpResult with upload throughput data
+            
+        Raises:
+            IperfServerUnavailableError: If server is unreachable
+            IperfConnectionError: If connection fails
+            ValueError: If invalid parameters are provided
+        """
+        if duration <= 0:
+            raise ValueError("Duration must be positive")
+        if parallel <= 0:
+            raise ValueError("Parallel connections must be positive")
+        if server_port <= 0 or server_port > 65535:
+            raise ValueError("Port must be between 1 and 65535")
+        
+        test_timeout = timeout if timeout is not None else self.timeout
+        
+        logger.info(f"Starting iPerf3 TCP upload test to {server_ip}:{server_port} "
+                   f"(duration={duration}s, parallel={parallel})")
+        
+        try:
+            client = iperf3.Client()
+            client.server_hostname = server_ip
+            client.port = server_port
+            client.duration = duration
+            client.num_streams = parallel
+            client.reverse = False  # Upload (client -> server)
+            client.protocol = 'tcp'
+            
+            # Set timeout if specified
+            if test_timeout:
+                client.timeout = int(test_timeout * 1000)  # Convert to milliseconds
+            
+            # Check server availability first
+            self._check_iperf_server_availability(server_ip, server_port, test_timeout)
+            
+            # Run the test
+            result = client.run()
+            
+            if result.error:
+                raise IperfConnectionError(f"iPerf3 test failed: {result.error}")
+            
+            return self._parse_iperf_tcp_result(server_ip, server_port, duration, result, 'upload')
+            
+        except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError) as e:
+            logger.error(f"iPerf3 TCP upload to {server_ip}:{server_port} failed: {e}")
+            if isinstance(e, (ConnectionRefusedError, OSError)) and e.errno in [errno.ECONNREFUSED, errno.EHOSTUNREACH]:
+                raise IperfServerUnavailableError(f"iPerf3 server {server_ip}:{server_port} is unavailable")
+            else:
+                raise IperfConnectionError(f"Failed to connect to iPerf3 server: {e}")
+        except Exception as e:
+            logger.error(f"iPerf3 TCP upload test failed: {e}")
+            raise IperfConnectionError(f"iPerf3 test failed: {e}")
+
+    def iperf_tcp_download(
+        self,
+        server_ip: str,
+        server_port: int = 5201,
+        duration: int = 10,
+        parallel: int = 1,
+        timeout: Optional[float] = None
+    ) -> IperfTcpResult:
+        """
+        Perform TCP download throughput test using iPerf3.
+        
+        Args:
+            server_ip: iPerf3 server IP address
+            server_port: iPerf3 server port
+            duration: Test duration in seconds
+            parallel: Number of parallel connections
+            timeout: Connection timeout in seconds
+            
+        Returns:
+            IperfTcpResult with download throughput data
+            
+        Raises:
+            IperfServerUnavailableError: If server is unreachable
+            IperfConnectionError: If connection fails
+            ValueError: If invalid parameters are provided
+        """
+        if duration <= 0:
+            raise ValueError("Duration must be positive")
+        if parallel <= 0:
+            raise ValueError("Parallel connections must be positive")
+        if server_port <= 0 or server_port > 65535:
+            raise ValueError("Port must be between 1 and 65535")
+        
+        test_timeout = timeout if timeout is not None else self.timeout
+        
+        logger.info(f"Starting iPerf3 TCP download test to {server_ip}:{server_port} "
+                   f"(duration={duration}s, parallel={parallel})")
+        
+        try:
+            client = iperf3.Client()
+            client.server_hostname = server_ip
+            client.port = server_port
+            client.duration = duration
+            client.num_streams = parallel
+            client.reverse = True  # Download (server -> client)
+            client.protocol = 'tcp'
+            
+            # Set timeout if specified
+            if test_timeout:
+                client.timeout = int(test_timeout * 1000)  # Convert to milliseconds
+            
+            # Check server availability first
+            self._check_iperf_server_availability(server_ip, server_port, test_timeout)
+            
+            # Run the test
+            result = client.run()
+            
+            if result.error:
+                raise IperfConnectionError(f"iPerf3 test failed: {result.error}")
+            
+            return self._parse_iperf_tcp_result(server_ip, server_port, duration, result, 'download')
+            
+        except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError) as e:
+            logger.error(f"iPerf3 TCP download to {server_ip}:{server_port} failed: {e}")
+            if isinstance(e, (ConnectionRefusedError, OSError)) and e.errno in [errno.ECONNREFUSED, errno.EHOSTUNREACH]:
+                raise IperfServerUnavailableError(f"iPerf3 server {server_ip}:{server_port} is unavailable")
+            else:
+                raise IperfConnectionError(f"Failed to connect to iPerf3 server: {e}")
+        except Exception as e:
+            logger.error(f"iPerf3 TCP download test failed: {e}")
+            raise IperfConnectionError(f"iPerf3 test failed: {e}")
+
+    def iperf_tcp_bidirectional(
+        self,
+        server_ip: str,
+        server_port: int = 5201,
+        duration: int = 10,
+        parallel: int = 1,
+        timeout: Optional[float] = None
+    ) -> IperfTcpResult:
+        """
+        Perform bidirectional TCP throughput test using iPerf3.
+        
+        Args:
+            server_ip: iPerf3 server IP address
+            server_port: iPerf3 server port
+            duration: Test duration in seconds
+            parallel: Number of parallel connections
+            timeout: Connection timeout in seconds
+            
+        Returns:
+            IperfTcpResult with both upload and download throughput data
+            
+        Raises:
+            IperfServerUnavailableError: If server is unreachable
+            IperfConnectionError: If connection fails
+            ValueError: If invalid parameters are provided
+        """
+        logger.info(f"Starting bidirectional iPerf3 TCP test to {server_ip}:{server_port}")
+        
+        try:
+            upload_result = self.iperf_tcp_upload(server_ip, server_port, duration, parallel, timeout)
+            download_result = self.iperf_tcp_download(server_ip, server_port, duration, parallel, timeout)
+            
+            # Combine results
+            return IperfTcpResult(
+                server_ip=server_ip,
+                server_port=server_port,
+                duration=duration,
+                bytes_sent=upload_result.bytes_sent + download_result.bytes_sent,
+                bytes_received=upload_result.bytes_received + download_result.bytes_received,
+                throughput_upload=upload_result.throughput_upload,
+                throughput_download=download_result.throughput_download,
+                retransmits=upload_result.retransmits + download_result.retransmits,
+                timestamp=datetime.now()
+            )
+            
+        except (IperfServerUnavailableError, IperfConnectionError):
+            raise
+        except Exception as e:
+            logger.error(f"Bidirectional iPerf3 TCP test failed: {e}")
+            raise IperfConnectionError(f"Bidirectional test failed: {e}")
+
+    def iperf_udp_test(
+        self,
+        server_ip: str,
+        server_port: int = 5201,
+        duration: int = 10,
+        bandwidth: str = "10M",
+        packet_len: int = 1460,
+        timeout: Optional[float] = None
+    ) -> IperfUdpResult:
+        """
+        Perform UDP throughput and loss test using iPerf3.
+        
+        Args:
+            server_ip: iPerf3 server IP address
+            server_port: iPerf3 server port
+            duration: Test duration in seconds
+            bandwidth: Target bandwidth (e.g., "10M", "1G")
+            packet_len: UDP packet length in bytes
+            timeout: Connection timeout in seconds
+            
+        Returns:
+            IperfUdpResult with UDP throughput, loss, and jitter data
+            
+        Raises:
+            IperfServerUnavailableError: If server is unreachable
+            IperfConnectionError: If connection fails
+            ValueError: If invalid parameters are provided
+        """
+        if duration <= 0:
+            raise ValueError("Duration must be positive")
+        if server_port <= 0 or server_port > 65535:
+            raise ValueError("Port must be between 1 and 65535")
+        if packet_len <= 0:
+            raise ValueError("Packet length must be positive")
+        
+        test_timeout = timeout if timeout is not None else self.timeout
+        
+        logger.info(f"Starting iPerf3 UDP test to {server_ip}:{server_port} "
+                   f"(duration={duration}s, bandwidth={bandwidth}, packet_len={packet_len})")
+        
+        try:
+            client = iperf3.Client()
+            client.server_hostname = server_ip
+            client.port = server_port
+            client.duration = duration
+            client.protocol = 'udp'
+            client.bandwidth = bandwidth
+            client.blksize = packet_len
+            
+            # Set timeout if specified
+            if test_timeout:
+                client.timeout = int(test_timeout * 1000)  # Convert to milliseconds
+            
+            # Check server availability first
+            self._check_iperf_server_availability(server_ip, server_port, test_timeout)
+            
+            # Run the test
+            result = client.run()
+            
+            if result.error:
+                raise IperfConnectionError(f"iPerf3 UDP test failed: {result.error}")
+            
+            return self._parse_iperf_udp_result(server_ip, server_port, duration, result)
+            
+        except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError) as e:
+            logger.error(f"iPerf3 UDP test to {server_ip}:{server_port} failed: {e}")
+            if isinstance(e, (ConnectionRefusedError, OSError)) and e.errno in [errno.ECONNREFUSED, errno.EHOSTUNREACH]:
+                raise IperfServerUnavailableError(f"iPerf3 server {server_ip}:{server_port} is unavailable")
+            else:
+                raise IperfConnectionError(f"Failed to connect to iPerf3 server: {e}")
+        except Exception as e:
+            logger.error(f"iPerf3 UDP test failed: {e}")
+            raise IperfConnectionError(f"iPerf3 UDP test failed: {e}")
+
+    def _check_iperf_server_availability(self, server_ip: str, server_port: int, timeout: float) -> None:
+        """
+        Check if iPerf3 server is available by attempting a socket connection.
+        
+        Args:
+            server_ip: iPerf3 server IP address
+            server_port: iPerf3 server port
+            timeout: Connection timeout in seconds
+            
+        Raises:
+            IperfServerUnavailableError: If server is not reachable
+        """
+        try:
+            sock = socket.create_connection((server_ip, server_port), timeout=timeout)
+            sock.close()
+        except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError) as e:
+            logger.error(f"iPerf3 server availability check failed: {e}")
+            raise IperfServerUnavailableError(
+                f"iPerf3 server {server_ip}:{server_port} is unavailable: {e}"
+            )
+
+    def _parse_iperf_tcp_result(
+        self,
+        server_ip: str,
+        server_port: int,
+        duration: float,
+        result,
+        direction: str
+    ) -> IperfTcpResult:
+        """
+        Parse iPerf3 TCP test result and create IperfTcpResult object.
+        
+        Args:
+            server_ip: iPerf3 server IP address
+            server_port: iPerf3 server port
+            duration: Test duration in seconds
+            result: iPerf3 result object
+            direction: Test direction ('upload', 'download', or 'bidirectional')
+            
+        Returns:
+            IperfTcpResult with parsed data
+        """
+        try:
+            # Get sum data from result
+            if hasattr(result, 'sum_sent') and result.sum_sent:
+                bytes_sent = getattr(result.sum_sent, 'bytes', 0)
+                throughput_sent_bps = getattr(result.sum_sent, 'bits_per_second', 0)
+                retransmits_sent = getattr(result.sum_sent, 'retransmits', 0)
+            else:
+                bytes_sent = 0
+                throughput_sent_bps = 0
+                retransmits_sent = 0
+
+            if hasattr(result, 'sum_received') and result.sum_received:
+                bytes_received = getattr(result.sum_received, 'bytes', 0)
+                throughput_received_bps = getattr(result.sum_received, 'bits_per_second', 0)
+                retransmits_received = getattr(result.sum_received, 'retransmits', 0)
+            else:
+                bytes_received = 0
+                throughput_received_bps = 0
+                retransmits_received = 0
+
+            # Convert bits per second to Mbps
+            throughput_upload = (throughput_sent_bps / 1_000_000) if direction != 'download' else 0.0
+            throughput_download = (throughput_received_bps / 1_000_000) if direction != 'upload' else 0.0
+            
+            # For reverse mode (download), the roles are switched
+            if direction == 'download':
+                throughput_upload = 0.0
+                throughput_download = throughput_sent_bps / 1_000_000
+                bytes_sent, bytes_received = bytes_received, bytes_sent
+
+            total_retransmits = retransmits_sent + retransmits_received
+
+            logger.info(f"iPerf3 TCP {direction} completed: "
+                       f"Upload: {throughput_upload:.2f} Mbps, "
+                       f"Download: {throughput_download:.2f} Mbps, "
+                       f"Retransmits: {total_retransmits}")
+
+            return IperfTcpResult(
+                server_ip=server_ip,
+                server_port=server_port,
+                duration=duration,
+                bytes_sent=bytes_sent,
+                bytes_received=bytes_received,
+                throughput_upload=throughput_upload,
+                throughput_download=throughput_download,
+                retransmits=total_retransmits,
+                timestamp=datetime.now()
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to parse iPerf3 TCP result: {e}")
+            # Return a result with zero values if parsing fails
+            return IperfTcpResult(
+                server_ip=server_ip,
+                server_port=server_port,
+                duration=duration,
+                bytes_sent=0,
+                bytes_received=0,
+                throughput_upload=0.0,
+                throughput_download=0.0,
+                retransmits=0,
+                timestamp=datetime.now()
+            )
+
+    def _parse_iperf_udp_result(
+        self,
+        server_ip: str,
+        server_port: int,
+        duration: float,
+        result
+    ) -> IperfUdpResult:
+        """
+        Parse iPerf3 UDP test result and create IperfUdpResult object.
+        
+        Args:
+            server_ip: iPerf3 server IP address
+            server_port: iPerf3 server port
+            duration: Test duration in seconds
+            result: iPerf3 result object
+            
+        Returns:
+            IperfUdpResult with parsed data
+        """
+        try:
+            # Get sent data
+            if hasattr(result, 'sum_sent') and result.sum_sent:
+                bytes_sent = getattr(result.sum_sent, 'bytes', 0)
+                packets_sent = getattr(result.sum_sent, 'packets', 0)
+                throughput_bps = getattr(result.sum_sent, 'bits_per_second', 0)
+            else:
+                bytes_sent = 0
+                packets_sent = 0
+                throughput_bps = 0
+
+            # Get received data (server-side statistics)
+            if hasattr(result, 'sum_received') and result.sum_received:
+                packets_lost = getattr(result.sum_received, 'lost_packets', 0)
+                packet_loss_percent = getattr(result.sum_received, 'lost_percent', 0.0)
+                jitter_ms = getattr(result.sum_received, 'jitter_ms', 0.0)
+            else:
+                packets_lost = 0
+                packet_loss_percent = 0.0
+                jitter_ms = 0.0
+
+            # Convert bits per second to Mbps
+            throughput_mbps = throughput_bps / 1_000_000
+
+            logger.info(f"iPerf3 UDP completed: "
+                       f"Throughput: {throughput_mbps:.2f} Mbps, "
+                       f"Packet Loss: {packet_loss_percent:.2f}%, "
+                       f"Jitter: {jitter_ms:.2f} ms")
+
+            return IperfUdpResult(
+                server_ip=server_ip,
+                server_port=server_port,
+                duration=duration,
+                bytes_sent=bytes_sent,
+                packets_sent=packets_sent,
+                packets_lost=packets_lost,
+                packet_loss=packet_loss_percent,
+                jitter=jitter_ms,
+                throughput=throughput_mbps,
+                timestamp=datetime.now()
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to parse iPerf3 UDP result: {e}")
+            # Return a result with zero values if parsing fails
+            return IperfUdpResult(
+                server_ip=server_ip,
+                server_port=server_port,
+                duration=duration,
+                bytes_sent=0,
+                packets_sent=0,
+                packets_lost=0,
+                packet_loss=0.0,
+                jitter=0.0,
+                throughput=0.0,
+                timestamp=datetime.now()
+            )
 
 
 class PingStatistics:

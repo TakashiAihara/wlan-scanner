@@ -4,9 +4,13 @@ import unittest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 import statistics
+import socket
+import errno
 
-from src.network_tester import NetworkTester, PingStatistics
-from src.models import PingResult
+from src.network_tester import (
+    NetworkTester, PingStatistics, IperfError, IperfServerUnavailableError, IperfConnectionError
+)
+from src.models import PingResult, IperfTcpResult, IperfUdpResult
 from pythonping.executor import Response, ResponseList
 
 
@@ -29,6 +33,54 @@ class MockResponseList:
     
     def __len__(self):
         return len(self.responses)
+
+
+class MockIperfResult:
+    """Mock iperf3 result object."""
+    
+    def __init__(self, error=None):
+        self.error = error
+        self.sum_sent = None
+        self.sum_received = None
+
+
+class MockIperfSumData:
+    """Mock iperf3 sum data object."""
+    
+    def __init__(self, bytes=0, bits_per_second=0, retransmits=0, packets=0, 
+                 lost_packets=0, lost_percent=0.0, jitter_ms=0.0):
+        self.bytes = bytes
+        self.bits_per_second = bits_per_second
+        self.retransmits = retransmits
+        self.packets = packets
+        self.lost_packets = lost_packets
+        self.lost_percent = lost_percent
+        self.jitter_ms = jitter_ms
+
+
+class MockIperfClient:
+    """Mock iperf3 Client class."""
+    
+    def __init__(self):
+        self.server_hostname = None
+        self.port = None
+        self.duration = None
+        self.num_streams = None
+        self.reverse = None
+        self.protocol = None
+        self.bandwidth = None
+        self.blksize = None
+        self.timeout = None
+        self._result = None
+    
+    def run(self):
+        if self._result:
+            return self._result
+        # Return a default successful result
+        result = MockIperfResult()
+        result.sum_sent = MockIperfSumData(bytes=1000000, bits_per_second=10000000)
+        result.sum_received = MockIperfSumData(bytes=1000000, bits_per_second=10000000)
+        return result
 
 
 class TestNetworkTester(unittest.TestCase):
@@ -287,6 +339,408 @@ class TestNetworkTester(unittest.TestCase):
         rtts = [10.0, 20.0, 30.0]
         expected_std_dev = statistics.stdev(rtts)
         self.assertAlmostEqual(result.std_dev_rtt, expected_std_dev, places=2)
+
+
+class TestIperfFunctionality(unittest.TestCase):
+    """Test cases for iPerf3 functionality in NetworkTester."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.tester = NetworkTester(timeout=5.0)
+        self.server_ip = "192.168.1.100"
+        self.server_port = 5201
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_tcp_upload_successful(self, mock_socket, mock_iperf_client):
+        """Test successful iPerf3 TCP upload."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client and result
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        # Create successful TCP result
+        result = MockIperfResult()
+        result.sum_sent = MockIperfSumData(bytes=10000000, bits_per_second=80000000, retransmits=5)
+        result.sum_received = MockIperfSumData(bytes=0, bits_per_second=0, retransmits=0)
+        mock_client._result = result
+        
+        # Run test
+        tcp_result = self.tester.iperf_tcp_upload(self.server_ip, self.server_port, duration=10)
+        
+        # Verify client configuration
+        self.assertEqual(mock_client.server_hostname, self.server_ip)
+        self.assertEqual(mock_client.port, self.server_port)
+        self.assertEqual(mock_client.duration, 10)
+        self.assertEqual(mock_client.protocol, 'tcp')
+        self.assertFalse(mock_client.reverse)
+        
+        # Verify result
+        self.assertIsInstance(tcp_result, IperfTcpResult)
+        self.assertEqual(tcp_result.server_ip, self.server_ip)
+        self.assertEqual(tcp_result.server_port, self.server_port)
+        self.assertEqual(tcp_result.duration, 10)
+        self.assertEqual(tcp_result.bytes_sent, 10000000)
+        self.assertAlmostEqual(tcp_result.throughput_upload, 80.0, places=1)  # 80 Mbps
+        self.assertEqual(tcp_result.throughput_download, 0.0)
+        self.assertEqual(tcp_result.retransmits, 5)
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_tcp_download_successful(self, mock_socket, mock_iperf_client):
+        """Test successful iPerf3 TCP download."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client and result
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        # Create successful TCP download result
+        result = MockIperfResult()
+        result.sum_sent = MockIperfSumData(bytes=15000000, bits_per_second=120000000, retransmits=3)
+        result.sum_received = MockIperfSumData(bytes=0, bits_per_second=0, retransmits=0)
+        mock_client._result = result
+        
+        # Run test
+        tcp_result = self.tester.iperf_tcp_download(self.server_ip, self.server_port, duration=5)
+        
+        # Verify client configuration for reverse mode
+        self.assertEqual(mock_client.server_hostname, self.server_ip)
+        self.assertEqual(mock_client.port, self.server_port)
+        self.assertEqual(mock_client.duration, 5)
+        self.assertEqual(mock_client.protocol, 'tcp')
+        self.assertTrue(mock_client.reverse)  # Download mode
+        
+        # Verify result - in download mode, sent data represents downloaded data
+        self.assertIsInstance(tcp_result, IperfTcpResult)
+        self.assertEqual(tcp_result.throughput_upload, 0.0)
+        self.assertAlmostEqual(tcp_result.throughput_download, 120.0, places=1)  # 120 Mbps
+        self.assertEqual(tcp_result.retransmits, 3)
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_udp_test_successful(self, mock_socket, mock_iperf_client):
+        """Test successful iPerf3 UDP test."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client and result
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        # Create successful UDP result
+        result = MockIperfResult()
+        result.sum_sent = MockIperfSumData(
+            bytes=5000000, bits_per_second=50000000, packets=5000
+        )
+        result.sum_received = MockIperfSumData(
+            lost_packets=100, lost_percent=2.0, jitter_ms=1.5
+        )
+        mock_client._result = result
+        
+        # Run test
+        udp_result = self.tester.iperf_udp_test(
+            self.server_ip, self.server_port, duration=10, bandwidth="50M"
+        )
+        
+        # Verify client configuration
+        self.assertEqual(mock_client.server_hostname, self.server_ip)
+        self.assertEqual(mock_client.port, self.server_port)
+        self.assertEqual(mock_client.duration, 10)
+        self.assertEqual(mock_client.protocol, 'udp')
+        self.assertEqual(mock_client.bandwidth, "50M")
+        
+        # Verify result
+        self.assertIsInstance(udp_result, IperfUdpResult)
+        self.assertEqual(udp_result.server_ip, self.server_ip)
+        self.assertEqual(udp_result.server_port, self.server_port)
+        self.assertEqual(udp_result.duration, 10)
+        self.assertEqual(udp_result.bytes_sent, 5000000)
+        self.assertEqual(udp_result.packets_sent, 5000)
+        self.assertEqual(udp_result.packets_lost, 100)
+        self.assertEqual(udp_result.packet_loss, 2.0)
+        self.assertEqual(udp_result.jitter, 1.5)
+        self.assertAlmostEqual(udp_result.throughput, 50.0, places=1)  # 50 Mbps
+    
+    def test_iperf_tcp_upload_parameter_validation(self):
+        """Test parameter validation for TCP upload."""
+        with self.assertRaises(ValueError):
+            self.tester.iperf_tcp_upload(self.server_ip, duration=-1)
+        
+        with self.assertRaises(ValueError):
+            self.tester.iperf_tcp_upload(self.server_ip, parallel=0)
+        
+        with self.assertRaises(ValueError):
+            self.tester.iperf_tcp_upload(self.server_ip, server_port=0)
+        
+        with self.assertRaises(ValueError):
+            self.tester.iperf_tcp_upload(self.server_ip, server_port=70000)
+    
+    def test_iperf_udp_test_parameter_validation(self):
+        """Test parameter validation for UDP test."""
+        with self.assertRaises(ValueError):
+            self.tester.iperf_udp_test(self.server_ip, duration=0)
+        
+        with self.assertRaises(ValueError):
+            self.tester.iperf_udp_test(self.server_ip, server_port=-1)
+        
+        with self.assertRaises(ValueError):
+            self.tester.iperf_udp_test(self.server_ip, packet_len=0)
+    
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_server_unavailable_error(self, mock_socket):
+        """Test server unavailability detection."""
+        # Mock socket connection failure
+        mock_socket.side_effect = ConnectionRefusedError("Connection refused")
+        
+        with self.assertRaises(IperfServerUnavailableError):
+            self.tester._check_iperf_server_availability(self.server_ip, self.server_port, 5.0)
+    
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_server_timeout_error(self, mock_socket):
+        """Test server timeout detection."""
+        # Mock socket timeout
+        mock_socket.side_effect = socket.timeout("Connection timeout")
+        
+        with self.assertRaises(IperfServerUnavailableError):
+            self.tester._check_iperf_server_availability(self.server_ip, self.server_port, 5.0)
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_test_with_error_result(self, mock_socket, mock_iperf_client):
+        """Test handling of iperf3 result with error."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client with error result
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        result = MockIperfResult(error="Test failed")
+        mock_client._result = result
+        
+        with self.assertRaises(IperfConnectionError):
+            self.tester.iperf_tcp_upload(self.server_ip)
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_client_exception_handling(self, mock_socket, mock_iperf_client):
+        """Test exception handling in iperf3 client."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client to raise exception
+        mock_iperf_client.side_effect = Exception("Client creation failed")
+        
+        with self.assertRaises(IperfConnectionError):
+            self.tester.iperf_tcp_upload(self.server_ip)
+    
+    @patch.object(NetworkTester, 'iperf_tcp_upload')
+    @patch.object(NetworkTester, 'iperf_tcp_download')
+    def test_iperf_tcp_bidirectional(self, mock_download, mock_upload):
+        """Test bidirectional TCP test."""
+        # Mock upload and download results
+        upload_result = IperfTcpResult(
+            server_ip=self.server_ip,
+            server_port=self.server_port,
+            duration=10,
+            bytes_sent=5000000,
+            bytes_received=0,
+            throughput_upload=50.0,
+            throughput_download=0.0,
+            retransmits=2,
+            timestamp=datetime.now()
+        )
+        
+        download_result = IperfTcpResult(
+            server_ip=self.server_ip,
+            server_port=self.server_port,
+            duration=10,
+            bytes_sent=0,
+            bytes_received=8000000,
+            throughput_upload=0.0,
+            throughput_download=80.0,
+            retransmits=1,
+            timestamp=datetime.now()
+        )
+        
+        mock_upload.return_value = upload_result
+        mock_download.return_value = download_result
+        
+        # Run bidirectional test
+        result = self.tester.iperf_tcp_bidirectional(self.server_ip, duration=10)
+        
+        # Verify both methods were called
+        mock_upload.assert_called_once_with(self.server_ip, self.server_port, 10, 1, None)
+        mock_download.assert_called_once_with(self.server_ip, self.server_port, 10, 1, None)
+        
+        # Verify combined result
+        self.assertIsInstance(result, IperfTcpResult)
+        self.assertEqual(result.throughput_upload, 50.0)
+        self.assertEqual(result.throughput_download, 80.0)
+        self.assertEqual(result.retransmits, 3)  # Combined retransmits
+        self.assertEqual(result.bytes_sent, 5000000)
+        self.assertEqual(result.bytes_received, 8000000)
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_result_parsing_with_missing_attributes(self, mock_socket, mock_iperf_client):
+        """Test parsing of iperf3 result with missing attributes."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client and result with minimal data
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        # Create result with missing attributes
+        result = MockIperfResult()
+        result.sum_sent = None
+        result.sum_received = None
+        mock_client._result = result
+        
+        # Run test
+        tcp_result = self.tester.iperf_tcp_upload(self.server_ip)
+        
+        # Should handle missing attributes gracefully
+        self.assertEqual(tcp_result.bytes_sent, 0)
+        self.assertEqual(tcp_result.bytes_received, 0)
+        self.assertEqual(tcp_result.throughput_upload, 0.0)
+        self.assertEqual(tcp_result.retransmits, 0)
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection') 
+    def test_iperf_result_parsing_exception(self, mock_socket, mock_iperf_client):
+        """Test handling of parsing exceptions."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client that returns problematic result
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        # Create a result that will cause parsing issues
+        result = MockIperfResult()
+        # Add a sum_sent that will cause getattr to fail
+        result.sum_sent = object()  # Object without expected attributes
+        mock_client._result = result
+        
+        # Should not raise exception, but return zero values
+        tcp_result = self.tester.iperf_tcp_upload(self.server_ip)
+        
+        self.assertEqual(tcp_result.bytes_sent, 0)
+        self.assertEqual(tcp_result.throughput_upload, 0.0)
+
+    @patch.object(NetworkTester, 'iperf_tcp_upload')
+    def test_iperf_tcp_bidirectional_upload_failure(self, mock_upload):
+        """Test bidirectional test when upload fails."""
+        # Mock upload failure
+        mock_upload.side_effect = IperfServerUnavailableError("Server unavailable")
+        
+        with self.assertRaises(IperfServerUnavailableError):
+            self.tester.iperf_tcp_bidirectional(self.server_ip)
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_tcp_custom_timeout_setting(self, mock_socket, mock_iperf_client):
+        """Test custom timeout setting in iperf3 client."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        result = MockIperfResult()
+        result.sum_sent = MockIperfSumData(bytes=1000000, bits_per_second=10000000)
+        result.sum_received = MockIperfSumData()
+        mock_client._result = result
+        
+        # Run test with custom timeout
+        self.tester.iperf_tcp_upload(self.server_ip, timeout=3.0)
+        
+        # Verify timeout was set in milliseconds
+        self.assertEqual(mock_client.timeout, 3000)  # 3.0 seconds * 1000
+    
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_udp_custom_settings(self, mock_socket, mock_iperf_client):
+        """Test UDP test with custom packet length and bandwidth."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        result = MockIperfResult()
+        result.sum_sent = MockIperfSumData(bytes=2000000, bits_per_second=20000000, packets=1500)
+        result.sum_received = MockIperfSumData(jitter_ms=2.5)
+        mock_client._result = result
+        
+        # Run test with custom settings
+        udp_result = self.tester.iperf_udp_test(
+            self.server_ip, 
+            bandwidth="20M", 
+            packet_len=1400, 
+            duration=15
+        )
+        
+        # Verify client settings
+        self.assertEqual(mock_client.bandwidth, "20M")
+        self.assertEqual(mock_client.blksize, 1400)
+        self.assertEqual(mock_client.duration, 15)
+        
+        # Verify result
+        self.assertEqual(udp_result.duration, 15)
+        self.assertAlmostEqual(udp_result.throughput, 20.0, places=1)
+        self.assertEqual(udp_result.jitter, 2.5)
+
+    @patch('src.network_tester.iperf3.Client')
+    @patch('src.network_tester.socket.create_connection')
+    def test_iperf_tcp_parallel_streams(self, mock_socket, mock_iperf_client):
+        """Test TCP test with multiple parallel streams."""
+        # Mock socket connection check
+        mock_socket.return_value.close.return_value = None
+        
+        # Mock iperf3 client
+        mock_client = MockIperfClient()
+        mock_iperf_client.return_value = mock_client
+        
+        result = MockIperfResult()
+        result.sum_sent = MockIperfSumData(bytes=20000000, bits_per_second=160000000, retransmits=10)
+        result.sum_received = MockIperfSumData()
+        mock_client._result = result
+        
+        # Run test with parallel streams
+        tcp_result = self.tester.iperf_tcp_upload(self.server_ip, parallel=4)
+        
+        # Verify parallel streams setting
+        self.assertEqual(mock_client.num_streams, 4)
+        
+        # Verify result
+        self.assertAlmostEqual(tcp_result.throughput_upload, 160.0, places=1)
+        self.assertEqual(tcp_result.retransmits, 10)
+
+    def test_iperf_error_classes_inheritance(self):
+        """Test that iperf error classes inherit correctly."""
+        # Test inheritance
+        self.assertTrue(issubclass(IperfServerUnavailableError, IperfError))
+        self.assertTrue(issubclass(IperfConnectionError, IperfError))
+        self.assertTrue(issubclass(IperfError, Exception))
+        
+        # Test instantiation
+        server_error = IperfServerUnavailableError("Server down")
+        connection_error = IperfConnectionError("Connection failed")
+        
+        self.assertIsInstance(server_error, IperfError)
+        self.assertIsInstance(connection_error, IperfError)
+        
+        self.assertEqual(str(server_error), "Server down")
+        self.assertEqual(str(connection_error), "Connection failed")
 
 
 class TestPingStatistics(unittest.TestCase):
