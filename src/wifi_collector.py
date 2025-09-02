@@ -89,7 +89,7 @@ class WiFiInfoCollector:
         try:
             # Get interface status
             cmd = f'netsh wlan show interfaces name="{self.interface_name}"'
-            result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
             
             if result.returncode != 0:
                 self.logger.error(f"netsh command failed: {result.stderr}")
@@ -141,7 +141,7 @@ class WiFiInfoCollector:
         try:
             # Get signal strength
             cmd = f'netsh wlan show interfaces name="{self.interface_name}"'
-            result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
             
             if result.returncode != 0:
                 return {}
@@ -219,7 +219,7 @@ class WiFiInfoCollector:
             
             # Get link information
             cmd = f"iw dev {self.interface_name} link"
-            result = subprocess.run(cmd.split(), capture_output=True, text=True)
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, encoding='utf-8', errors='replace')
             
             if result.returncode == 0:
                 output = result.stdout
@@ -249,7 +249,7 @@ class WiFiInfoCollector:
             
             # Get MAC address
             cmd = f"ip link show {self.interface_name}"
-            result = subprocess.run(cmd.split(), capture_output=True, text=True)
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, encoding='utf-8', errors='replace')
             
             if result.returncode == 0:
                 output = result.stdout
@@ -278,7 +278,7 @@ class WiFiInfoCollector:
         """
         try:
             cmd = f"iwconfig {self.interface_name}"
-            result = subprocess.run(cmd.split(), capture_output=True, text=True)
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, encoding='utf-8', errors='replace')
             
             if result.returncode != 0:
                 return {}
@@ -318,7 +318,7 @@ class WiFiInfoCollector:
             
             # Get MAC address
             cmd = f"ip link show {self.interface_name}"
-            result = subprocess.run(cmd.split(), capture_output=True, text=True)
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, encoding='utf-8', errors='replace')
             
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
@@ -343,7 +343,7 @@ class WiFiInfoCollector:
         try:
             # Use airport utility
             cmd = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I"
-            result = subprocess.run(cmd.split(), capture_output=True, text=True)
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, encoding='utf-8', errors='replace')
             
             if result.returncode != 0:
                 return None
@@ -490,7 +490,7 @@ class WiFiInfoCollector:
         try:
             if self.platform == "Windows":
                 cmd = "netsh wlan show interfaces"
-                result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
                 
                 if result.returncode == 0:
                     for line in result.stdout.split('\n'):
@@ -500,7 +500,7 @@ class WiFiInfoCollector:
                             
             elif self.platform == "Linux":
                 cmd = "ip link show"
-                result = subprocess.run(cmd.split(), capture_output=True, text=True)
+                result = subprocess.run(cmd.split(), capture_output=True, text=True, encoding='utf-8', errors='replace')
                 
                 if result.returncode == 0:
                     for line in result.stdout.split('\n'):
@@ -513,7 +513,7 @@ class WiFiInfoCollector:
                                     
             elif self.platform == "Darwin":
                 cmd = "ifconfig -l"
-                result = subprocess.run(cmd.split(), capture_output=True, text=True)
+                result = subprocess.run(cmd.split(), capture_output=True, text=True, encoding='utf-8', errors='replace')
                 
                 if result.returncode == 0:
                     interfaces = result.stdout.strip().split()
