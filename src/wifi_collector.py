@@ -12,15 +12,34 @@ from src.models import WiFiInfo
 class WiFiInfoCollector:
     """Collects wireless LAN information using platform-specific APIs."""
 
-    def __init__(self, interface_name: str = "Wi-Fi"):
+    def __init__(self, interface_name: str = "auto"):
         """Initialize WiFi info collector.
         
         Args:
-            interface_name: Name of the wireless interface.
+            interface_name: Name of the wireless interface, or "auto" to auto-detect.
         """
-        self.interface_name = interface_name
         self.logger = logging.getLogger(__name__)
         self.platform = platform.system()
+        
+        # Auto-detect interface if needed
+        if interface_name == "auto" or interface_name == "":
+            detected = self._auto_detect_interface()
+            if detected:
+                self.interface_name = detected
+                self.logger.info(f"Auto-detected WiFi interface: {detected}")
+            else:
+                # Fallback to common defaults
+                if self.platform == "Windows":
+                    self.interface_name = "Wi-Fi"
+                elif self.platform == "Linux":
+                    self.interface_name = "wlan0"
+                elif self.platform == "Darwin":
+                    self.interface_name = "en0"
+                else:
+                    self.interface_name = "Wi-Fi"
+                self.logger.warning(f"Could not auto-detect interface, using default: {self.interface_name}")
+        else:
+            self.interface_name = interface_name
         
     def collect_wifi_info(self) -> Optional[WiFiInfo]:
         """Collect current WiFi information.
@@ -543,6 +562,71 @@ class WiFiInfoCollector:
         
         return interfaces
 
+    def _auto_detect_interface(self) -> Optional[str]:
+        """Auto-detect the first available WiFi interface.
+        
+        Returns:
+            Interface name if found, None otherwise.
+        """
+        try:
+            if self.platform == "Windows":
+                cmd = "netsh wlan show interfaces"
+                result = subprocess.run(cmd, capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
+                
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        # Look for "Name" or "名前" (Japanese)
+                        if ('Name' in line or '名前' in line) and ':' in line:
+                            parts = line.split(':', 1)
+                            if len(parts) == 2:
+                                interface = parts[1].strip()
+                                # Check if it's connected
+                                check_cmd = f'netsh wlan show interfaces name="{interface}"'
+                                check_result = subprocess.run(check_cmd, capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
+                                if check_result.returncode == 0:
+                                    # Check for connected state
+                                    if '接続されました' in check_result.stdout or 'connected' in check_result.stdout.lower():
+                                        return interface
+                                    
+            elif self.platform == "Linux":
+                # Try iwconfig first
+                try:
+                    result = subprocess.run("iwconfig", capture_output=True, text=True, encoding='utf-8', errors='replace')
+                    if result.returncode == 0:
+                        for line in result.stdout.split('\n'):
+                            if 'IEEE 802.11' in line:
+                                interface = line.split()[0]
+                                return interface
+                except:
+                    pass
+                    
+                # Fallback to ip link
+                result = subprocess.run("ip link show", capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'wlan' in line.lower() or 'wlp' in line.lower():
+                            parts = line.split(':')
+                            if len(parts) >= 2:
+                                return parts[1].strip()
+                                
+            elif self.platform == "Darwin":
+                # macOS
+                result = subprocess.run("networksetup -listallhardwareports", capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    for i, line in enumerate(lines):
+                        if 'Wi-Fi' in line:
+                            # Next line should have the device
+                            if i + 1 < len(lines):
+                                device_line = lines[i + 1]
+                                if 'Device:' in device_line:
+                                    return device_line.split('Device:')[1].strip()
+                                    
+        except Exception as e:
+            self.logger.debug(f"Auto-detect failed: {e}")
+            
+        return None
+    
     def is_connected(self) -> bool:
         """Check if WiFi is connected.
         
