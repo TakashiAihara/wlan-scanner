@@ -120,7 +120,11 @@ class MeasurementResult:
     errors: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
-    location: str = ""  # Optional location identifier
+    # Location and device info (matching original spec)
+    device: str = ""  # デバイス
+    location: str = ""  # 場所
+    path: str = ""  # 経路
+    notes: str = ""  # 備考
     
     # Backward compatibility properties
     @property

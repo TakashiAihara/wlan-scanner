@@ -211,6 +211,26 @@ Prerequisites:
             type=str,
             help='Location identifier for measurements (e.g., "Room1", "Office")'
         )
+        measurement_group.add_argument(
+            '--device',
+            type=str,
+            help='Device identifier (e.g., "iPhone14", "Laptop1")'
+        )
+        measurement_group.add_argument(
+            '--path',
+            type=str,
+            help='Network path or route information'
+        )
+        measurement_group.add_argument(
+            '--notes',
+            type=str,
+            help='Additional notes for this measurement'
+        )
+        measurement_group.add_argument(
+            '--japanese',
+            action='store_true',
+            help='Use Japanese column headers in CSV output'
+        )
         
         # Network options
         network_group = parser.add_argument_group('Network Settings')
@@ -553,9 +573,24 @@ Prerequisites:
         
         try:
             self.logger.info("Starting single measurement cycle")
-            # Get location from args if provided
-            location = getattr(self.args, 'location', '') if hasattr(self, 'args') else ''
-            result = self.measurement_orchestrator.execute_measurement_cycle(sequence, location=location)
+            # Get metadata from args if provided
+            if hasattr(self, 'args'):
+                location = getattr(self.args, 'location', '')
+                device = getattr(self.args, 'device', '')
+                path = getattr(self.args, 'path', '')
+                notes = getattr(self.args, 'notes', '')
+            else:
+                location = device = path = notes = ''
+            
+            result = self.measurement_orchestrator.execute_measurement_cycle(
+                sequence, 
+                location=location,
+                metadata={
+                    'device': device,
+                    'path': path,
+                    'notes': notes,
+                }
+            )
             
             # Log results
             self.logger.info(f"Measurement {result.measurement_id} completed in {result.execution_time:.2f}s")

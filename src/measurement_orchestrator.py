@@ -232,7 +232,8 @@ class MeasurementOrchestrator:
     def execute_measurement_cycle(self, 
                                   sequence: Optional[MeasurementSequence] = None,
                                   measurement_id: Optional[str] = None,
-                                  location: str = "") -> OrchestrationResult:
+                                  location: str = "",
+                                  metadata: Optional[Dict[str, Any]] = None) -> OrchestrationResult:
         """
         Execute a complete measurement cycle.
         
@@ -257,7 +258,10 @@ class MeasurementOrchestrator:
         measurement_result = MeasurementResult(
             measurement_id=measurement_id,
             timestamp=start_time,
-            location=location
+            location=location,
+            device=metadata.get('device', '') if metadata else '',
+            path=metadata.get('path', '') if metadata else '',
+            notes=metadata.get('notes', '') if metadata else ''
         )
         
         errors = []
