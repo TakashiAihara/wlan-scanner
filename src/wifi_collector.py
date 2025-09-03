@@ -98,7 +98,7 @@ class WiFiInfoCollector:
             output = result.stdout
             info = {}
             
-            # Parse output
+            # Parse output (supports both English and Japanese Windows)
             for line in output.split('\n'):
                 line = line.strip()
                 if ':' in line:
@@ -106,25 +106,37 @@ class WiFiInfoCollector:
                     key = key.strip()
                     value = value.strip()
                     
-                    if 'SSID' in key and 'BSSID' not in key:
+                    # SSID (both English and Japanese)
+                    if ('SSID' in key and 'BSSID' not in key and 'AP' not in key):
                         info['ssid'] = value
-                    elif 'BSSID' in key:
+                    # MAC address (BSSID)
+                    elif 'BSSID' in key or 'AP BSSID' in key:
                         info['mac_address'] = value
-                    elif 'Channel' in key:
+                    # Channel (English: Channel, Japanese: チャネル)
+                    elif 'Channel' in key or 'チャネル' in key:
                         try:
                             info['channel'] = int(value)
                         except ValueError:
                             pass
-                    elif 'Receive rate' in key:
+                    # Receive rate (English: Receive rate, Japanese: 受信速度)
+                    elif 'Receive rate' in key or '受信速度' in key:
                         try:
+                            # Remove (Mbps) if present
+                            value = value.replace('(Mbps)', '').strip()
                             info['rx_rate'] = float(value.split()[0])
                         except (ValueError, IndexError):
                             pass
-                    elif 'Transmit rate' in key:
+                    # Transmit rate (English: Transmit rate, Japanese: 送信速度)
+                    elif 'Transmit rate' in key or '送信速度' in key:
                         try:
+                            # Remove (Mbps) if present
+                            value = value.replace('(Mbps)', '').strip()
                             info['tx_rate'] = float(value.split()[0])
                         except (ValueError, IndexError):
                             pass
+                    # Connection state (English: State, Japanese: 状態)
+                    elif 'State' in key or '状態' in key:
+                        info['state'] = value
             
             return info
             
@@ -156,15 +168,23 @@ class WiFiInfoCollector:
                     key = key.strip()
                     value = value.strip()
                     
-                    if 'Signal' in key:
+                    # Signal quality (English: Signal, Japanese: シグナル)
+                    if 'Signal' in key or 'シグナル' in key:
                         try:
-                            # Parse percentage (e.g., "80%")
+                            # Parse percentage (e.g., "80%" or "88%")
                             quality = int(value.replace('%', ''))
                             info['quality'] = quality
-                            # Convert to approximate RSSI
-                            info['rssi'] = self._quality_to_rssi(quality)
                         except ValueError:
                             pass
+                    # RSSI value (English: Rssi, Japanese: Rssi)
+                    elif 'Rssi' in key or 'RSSI' in key:
+                        try:
+                            # Parse RSSI value (e.g., "-34")
+                            info['rssi'] = int(value)
+                        except ValueError:
+                            # If RSSI not available, calculate from quality
+                            if 'quality' in info:
+                                info['rssi'] = self._quality_to_rssi(info['quality'])
             
             return info
             
