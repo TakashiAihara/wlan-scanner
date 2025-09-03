@@ -1,0 +1,38 @@
+# WiFi Scanner Configuration Template
+# Copy this file to config.ini and customize as needed
+# Or use command-line options to override any setting
+
+[network]
+# WiFi interface name (use "auto" for auto-detection)
+interface_name = auto
+# Target IPs for ping tests (comma-separated)
+target_ips = 8.8.8.8, 1.1.1.1
+# Scan interval in seconds (for continuous mode)
+scan_interval = 60
+# Network timeout in seconds
+timeout = 10
+
+[measurement]
+# Ping configuration
+ping_count = 10
+ping_size = 32
+ping_interval = 1.0
+
+# iPerf3 configuration (leave empty to skip)
+iperf_server = 
+iperf_port = 5201
+iperf_duration = 10
+iperf_parallel = 1
+iperf_udp_bandwidth = 10M
+
+# File transfer configuration (leave empty to skip)
+file_server = 
+file_size_mb = 100
+file_protocol = SMB
+
+[output]
+# Output configuration
+data_directory = data
+output_format = csv
+verbose = false
+log_level = INFO

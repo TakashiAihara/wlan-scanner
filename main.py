@@ -207,6 +207,65 @@ Prerequisites:
             help='Override default timeout for measurements (seconds)'
         )
         
+        # Network options
+        network_group = parser.add_argument_group('Network Settings')
+        network_group.add_argument(
+            '--interface',
+            type=str,
+            help='WiFi interface name (default: auto-detect)'
+        )
+        network_group.add_argument(
+            '--targets',
+            type=str,
+            help='Comma-separated list of target IPs for ping tests (default: 8.8.8.8,1.1.1.1)'
+        )
+        
+        # Ping options
+        ping_group = parser.add_argument_group('Ping Settings')
+        ping_group.add_argument(
+            '--ping-count',
+            type=int,
+            help='Number of ping packets to send (default: 10)'
+        )
+        ping_group.add_argument(
+            '--ping-size',
+            type=int,
+            help='Size of ping packets in bytes (default: 32)'
+        )
+        ping_group.add_argument(
+            '--ping-interval',
+            type=float,
+            help='Interval between ping packets in seconds (default: 1.0)'
+        )
+        
+        # iPerf3 options
+        iperf_group = parser.add_argument_group('iPerf3 Settings')
+        iperf_group.add_argument(
+            '--iperf-server',
+            type=str,
+            help='iPerf3 server address'
+        )
+        iperf_group.add_argument(
+            '--iperf-port',
+            type=int,
+            help='iPerf3 server port (default: 5201)'
+        )
+        iperf_group.add_argument(
+            '--iperf-duration',
+            type=int,
+            help='iPerf3 test duration in seconds (default: 10)'
+        )
+        iperf_group.add_argument(
+            '--iperf-parallel',
+            type=int,
+            help='Number of parallel iPerf3 connections (default: 1)'
+        )
+        iperf_group.add_argument(
+            '--iperf-udp-bandwidth',
+            type=str,
+            help='Bandwidth for UDP tests (default: 10M)'
+        )
+        
         # Validation and testing
         validation_group = parser.add_argument_group('Validation')
         validation_group.add_argument(
@@ -282,6 +341,26 @@ Prerequisites:
         Raises:
             SystemExit: If configuration loading fails critically
         """
+        # If no config file specified, check default location
+        if not config_path:
+            config_path = "config/config.ini"
+        
+        config_path_obj = Path(config_path)
+        
+        # If config file doesn't exist, use default configuration
+        if not config_path_obj.exists():
+            self.logger.info(f"Config file not found at {config_path}, using default configuration")
+            self.logger.info("You can create a config file with --create-config or use command-line options")
+            # Create default configuration
+            from src.models import Configuration
+            self.configuration = Configuration()
+            # Set sensible defaults
+            self.configuration.interface_name = "auto"
+            self.configuration.target_ips = ["8.8.8.8", "1.1.1.1"]
+            self.configuration.iperf_server = ""  # Empty = skip iPerf tests
+            self.configuration.file_server = ""   # Empty = skip file transfer tests
+            return self.configuration
+        
         try:
             self.config_manager = ConfigurationManager(config_path)
             self.configuration = self.config_manager.load_config()
@@ -289,13 +368,15 @@ Prerequisites:
             self.logger.info(f"Configuration loaded successfully from {self.config_manager.config_path}")
             return self.configuration
             
-        except FileNotFoundError as e:
-            self.logger.error(f"Configuration file not found: {e}")
-            self.logger.info("Use --create-config to generate a default configuration file")
-            sys.exit(1)
         except Exception as e:
-            self.logger.error(f"Failed to load configuration: {e}")
-            sys.exit(1)
+            self.logger.warning(f"Failed to load configuration: {e}, using defaults")
+            from src.models import Configuration
+            self.configuration = Configuration()
+            self.configuration.interface_name = "auto"
+            self.configuration.target_ips = ["8.8.8.8", "1.1.1.1"]
+            self.configuration.iperf_server = ""
+            self.configuration.file_server = ""
+            return self.configuration
     
     def apply_cli_overrides(self, args: argparse.Namespace) -> None:
         """
@@ -307,7 +388,50 @@ Prerequisites:
         if not self.configuration:
             return
         
-        # Override timeout
+        # Network settings
+        if args.interface:
+            self.configuration.interface_name = args.interface
+            self.logger.info(f"Interface overridden to {args.interface}")
+        
+        if args.targets:
+            self.configuration.target_ips = [ip.strip() for ip in args.targets.split(',')]
+            self.logger.info(f"Target IPs overridden to {self.configuration.target_ips}")
+        
+        # Ping settings
+        if args.ping_count:
+            self.configuration.ping_count = args.ping_count
+            self.logger.info(f"Ping count overridden to {args.ping_count}")
+        
+        if args.ping_size:
+            self.configuration.ping_size = args.ping_size
+            self.logger.info(f"Ping size overridden to {args.ping_size} bytes")
+        
+        if args.ping_interval:
+            self.configuration.ping_interval = args.ping_interval
+            self.logger.info(f"Ping interval overridden to {args.ping_interval} seconds")
+        
+        # iPerf3 settings
+        if args.iperf_server:
+            self.configuration.iperf_server = args.iperf_server
+            self.logger.info(f"iPerf3 server overridden to {args.iperf_server}")
+        
+        if args.iperf_port:
+            self.configuration.iperf_port = args.iperf_port
+            self.logger.info(f"iPerf3 port overridden to {args.iperf_port}")
+        
+        if args.iperf_duration:
+            self.configuration.iperf_duration = args.iperf_duration
+            self.logger.info(f"iPerf3 duration overridden to {args.iperf_duration} seconds")
+        
+        if args.iperf_parallel:
+            self.configuration.iperf_parallel = args.iperf_parallel
+            self.logger.info(f"iPerf3 parallel connections overridden to {args.iperf_parallel}")
+        
+        if args.iperf_udp_bandwidth:
+            self.configuration.iperf_udp_bandwidth = args.iperf_udp_bandwidth
+            self.logger.info(f"iPerf3 UDP bandwidth overridden to {args.iperf_udp_bandwidth}")
+        
+        # General settings
         if args.timeout:
             self.configuration.timeout = args.timeout
             self.logger.info(f"Timeout overridden to {args.timeout} seconds")

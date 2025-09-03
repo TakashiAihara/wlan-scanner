@@ -57,16 +57,35 @@ cd wlan-scanner
 pip install -r requirements.txt
 ```
 
-3. **Create configuration file**:
+3. **Run immediately** (no configuration needed):
+```bash
+# Basic measurement with auto-detected WiFi interface
+python main.py
+
+# Continuous monitoring every 5 minutes
+python main.py --continuous -i 300
+
+# Specify custom settings via command line
+python main.py --interface Wi-Fi --targets 8.8.8.8,1.1.1.1 --ping-count 20
+
+# With iPerf3 server
+python main.py --iperf-server 192.168.1.100 --iperf-duration 10
+```
+
+### Optional: Configuration File
+
+If you prefer using a configuration file instead of command-line options:
+
+1. **Create configuration file** (optional):
 ```bash
 python main.py --create-config
 ```
 
-4. **Configure settings** (edit `config/config.ini`):
+2. **Edit settings** (optional - edit `config/config.ini`):
 ```ini
 [network]
-interface_name = Wi-Fi
-target_ips = 192.168.1.1, 8.8.8.8
+interface_name = auto  # or specific interface like "Wi-Fi"
+target_ips = 8.8.8.8, 1.1.1.1
 iperf_server = 192.168.1.100
 
 [measurement]

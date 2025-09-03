@@ -133,7 +133,13 @@ data/output/
 data/logs/
 *.pcap
 *.pcapng
-config/local_config.ini
+
+# Configuration files (keep templates only)
+config/*.ini
+config/*.conf
+config/*.yaml
+config/*.yml
+!config/*.template
 
 # Measurement result CSV files
 data/*.csv
