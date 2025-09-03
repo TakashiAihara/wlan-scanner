@@ -112,23 +112,37 @@ class MeasurementResult:
     """Complete measurement result containing all test data."""
     measurement_id: str
     wifi_info: Optional[WiFiInfo] = None
-    ping_result: Optional[PingResult] = None
-    iperf_tcp_result: Optional[IperfTcpResult] = None
+    ping_results: List[PingResult] = field(default_factory=list)  # Multiple ping targets
+    iperf_tcp_upload: Optional[IperfTcpResult] = None
+    iperf_tcp_download: Optional[IperfTcpResult] = None
     iperf_udp_result: Optional[IperfUdpResult] = None
     file_transfer_result: Optional[FileTransferResult] = None
     errors: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
+    location: str = ""  # Optional location identifier
+    
+    # Backward compatibility properties
+    @property
+    def ping_result(self) -> Optional[PingResult]:
+        """Get first ping result for backward compatibility."""
+        return self.ping_results[0] if self.ping_results else None
+    
+    @property
+    def iperf_tcp_result(self) -> Optional[IperfTcpResult]:
+        """Get upload result for backward compatibility."""
+        return self.iperf_tcp_upload
 
     def add_error(self, error_msg: str) -> None:
         """Add an error message to the measurement."""
         self.errors.append(f"[{datetime.now().isoformat()}] {error_msg}")
 
     def to_csv_row(self) -> Dict[str, Any]:
-        """Convert measurement to CSV row format."""
+        """Convert measurement to CSV row format - all data in one row."""
         row = {
             "measurement_id": self.measurement_id,
             "timestamp": self.timestamp.isoformat(),
+            "location": self.location,  # Location identifier for comparison
         }
 
         # Add WiFi info
@@ -142,24 +156,61 @@ class MeasurementResult:
                 "wifi_channel": self.wifi_info.channel,
                 "wifi_frequency": self.wifi_info.frequency,
             })
-
-        # Add ping results
-        if self.ping_result:
+        else:
+            # Add empty WiFi fields for consistency
             row.update({
-                "ping_target": self.ping_result.target_ip,
-                "ping_packet_loss": self.ping_result.packet_loss,
-                "ping_avg_rtt": self.ping_result.avg_rtt,
-                "ping_min_rtt": self.ping_result.min_rtt,
-                "ping_max_rtt": self.ping_result.max_rtt,
-                "ping_std_dev": self.ping_result.std_dev_rtt,
+                "wifi_ssid": "",
+                "wifi_rssi": "",
+                "wifi_link_quality": "",
+                "wifi_tx_rate": "",
+                "wifi_rx_rate": "",
+                "wifi_channel": "",
+                "wifi_frequency": "",
             })
 
-        # Add iPerf TCP results
-        if self.iperf_tcp_result:
+        # Add ping results for common targets (e.g., 8.8.8.8 and 1.1.1.1)
+        # We'll add columns for up to 3 ping targets
+        for i in range(3):
+            if i < len(self.ping_results):
+                ping = self.ping_results[i]
+                row.update({
+                    f"ping{i+1}_target": ping.target_ip,
+                    f"ping{i+1}_loss": ping.packet_loss,
+                    f"ping{i+1}_avg_rtt": ping.avg_rtt,
+                    f"ping{i+1}_min_rtt": ping.min_rtt,
+                    f"ping{i+1}_max_rtt": ping.max_rtt,
+                })
+            else:
+                # Fill empty columns for consistency
+                row.update({
+                    f"ping{i+1}_target": "",
+                    f"ping{i+1}_loss": "",
+                    f"ping{i+1}_avg_rtt": "",
+                    f"ping{i+1}_min_rtt": "",
+                    f"ping{i+1}_max_rtt": "",
+                })
+
+        # Add iPerf TCP results (separate upload and download)
+        if self.iperf_tcp_upload:
             row.update({
-                "iperf_tcp_upload": self.iperf_tcp_result.throughput_upload,
-                "iperf_tcp_download": self.iperf_tcp_result.throughput_download,
-                "iperf_tcp_retransmits": self.iperf_tcp_result.retransmits,
+                "iperf_tcp_upload_mbps": self.iperf_tcp_upload.throughput_upload,
+                "iperf_tcp_upload_retransmits": self.iperf_tcp_upload.retransmits,
+            })
+        else:
+            row.update({
+                "iperf_tcp_upload_mbps": "",
+                "iperf_tcp_upload_retransmits": "",
+            })
+            
+        if self.iperf_tcp_download:
+            row.update({
+                "iperf_tcp_download_mbps": self.iperf_tcp_download.throughput_download,
+                "iperf_tcp_download_retransmits": self.iperf_tcp_download.retransmits,
+            })
+        else:
+            row.update({
+                "iperf_tcp_download_mbps": "",
+                "iperf_tcp_download_retransmits": "",
             })
 
         # Add iPerf UDP results
@@ -168,6 +219,12 @@ class MeasurementResult:
                 "iperf_udp_throughput": self.iperf_udp_result.throughput,
                 "iperf_udp_packet_loss": self.iperf_udp_result.packet_loss,
                 "iperf_udp_jitter": self.iperf_udp_result.jitter,
+            })
+        else:
+            row.update({
+                "iperf_udp_throughput": "",
+                "iperf_udp_packet_loss": "",
+                "iperf_udp_jitter": "",
             })
 
         # Add file transfer results

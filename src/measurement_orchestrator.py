@@ -231,7 +231,8 @@ class MeasurementOrchestrator:
     
     def execute_measurement_cycle(self, 
                                   sequence: Optional[MeasurementSequence] = None,
-                                  measurement_id: Optional[str] = None) -> OrchestrationResult:
+                                  measurement_id: Optional[str] = None,
+                                  location: str = "") -> OrchestrationResult:
         """
         Execute a complete measurement cycle.
         
@@ -255,7 +256,8 @@ class MeasurementOrchestrator:
         # Initialize measurement result
         measurement_result = MeasurementResult(
             measurement_id=measurement_id,
-            timestamp=start_time
+            timestamp=start_time,
+            location=location
         )
         
         errors = []
@@ -406,15 +408,37 @@ class MeasurementOrchestrator:
             size = params.get('size', self.config.ping_size)
             interval = params.get('interval', self.config.ping_interval)
             
-            # For multiple targets, use the first one or aggregate results
+            # Test all targets and return list of results
             if isinstance(targets, list) and targets:
-                return self.network_tester.ping(
-                    target=targets[0],
-                    count=count,
-                    size=size,
-                    interval=interval,
-                    timeout=timeout
-                )
+                results = []
+                for target in targets:
+                    try:
+                        result = self.network_tester.ping(
+                            target=target,
+                            count=count,
+                            size=size,
+                            interval=interval,
+                            timeout=timeout
+                        )
+                        results.append(result)
+                    except Exception as e:
+                        self.logger.warning(f"Ping to {target} failed: {e}")
+                        # Add a failed result for consistency
+                        from src.models import PingResult
+                        from datetime import datetime
+                        failed_result = PingResult(
+                            target_ip=target,
+                            packets_sent=count,
+                            packets_received=0,
+                            packet_loss=100.0,
+                            min_rtt=0.0,
+                            max_rtt=0.0,
+                            avg_rtt=0.0,
+                            std_dev_rtt=0.0,
+                            timestamp=datetime.now()
+                        )
+                        results.append(failed_result)
+                return results if results else None
             else:
                 raise ValueError("No valid targets specified for ping test")
                 
@@ -504,9 +528,20 @@ class MeasurementOrchestrator:
         if measurement_type == MeasurementType.WIFI_INFO:
             measurement_result.wifi_info = result
         elif measurement_type == MeasurementType.PING:
-            measurement_result.ping_result = result
+            # Add ping result to list (support multiple targets)
+            if isinstance(result, list):
+                measurement_result.ping_results = result
+            else:
+                measurement_result.ping_results.append(result)
         elif measurement_type == MeasurementType.IPERF_TCP:
-            measurement_result.iperf_tcp_result = result
+            # Store upload and download separately
+            if result and hasattr(result, 'throughput_upload') and result.throughput_upload > 0:
+                measurement_result.iperf_tcp_upload = result
+            elif result and hasattr(result, 'throughput_download') and result.throughput_download > 0:
+                measurement_result.iperf_tcp_download = result
+            else:
+                # Fallback for backward compatibility
+                measurement_result.iperf_tcp_upload = result
         elif measurement_type == MeasurementType.IPERF_UDP:
             measurement_result.iperf_udp_result = result
         elif measurement_type == MeasurementType.FILE_TRANSFER:

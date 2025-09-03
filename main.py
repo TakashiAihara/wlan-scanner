@@ -206,6 +206,11 @@ Prerequisites:
             type=int,
             help='Override default timeout for measurements (seconds)'
         )
+        measurement_group.add_argument(
+            '--location',
+            type=str,
+            help='Location identifier for measurements (e.g., "Room1", "Office")'
+        )
         
         # Network options
         network_group = parser.add_argument_group('Network Settings')
@@ -548,7 +553,9 @@ Prerequisites:
         
         try:
             self.logger.info("Starting single measurement cycle")
-            result = self.measurement_orchestrator.execute_measurement_cycle(sequence)
+            # Get location from args if provided
+            location = getattr(self.args, 'location', '') if hasattr(self, 'args') else ''
+            result = self.measurement_orchestrator.execute_measurement_cycle(sequence, location=location)
             
             # Log results
             self.logger.info(f"Measurement {result.measurement_id} completed in {result.execution_time:.2f}s")
@@ -705,6 +712,7 @@ Prerequisites:
         try:
             # Parse arguments
             parsed_args = self.parse_arguments(args)
+            self.args = parsed_args  # Store for later use
             
             # Set up logging early
             self.setup_logging(
